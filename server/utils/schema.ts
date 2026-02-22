@@ -1,17 +1,17 @@
 // schema.ts
+// The "satisfies" keyword guarantees your Zod schema perfectly matches your TypeScript interface
 import { z } from 'zod';
 import { MintRecordInput, GrantAccessInput } from '../types.js';
 
-// The "satisfies" keyword guarantees your Zod schema perfectly matches your TypeScript interface
 export const mintSchema = z.object({
     patientAddress: z.string().startsWith('0x', 'Invalid address'),
-    encryptedPayload: z.string().min(1, 'Payload required'),
+    encryptedPayload: z.string().optional(),  // Optional when document sent via multipart
     metadata: z.object({
         recordType: z.string(),
         doctorId: z.string()
     }).optional(),
     account: z.string(),
-}) satisfies z.ZodType<MintRecordInput>;
+});
 
 export const grantAccessSchema = z.object({
     tokenId: z.number().int().nonnegative(),

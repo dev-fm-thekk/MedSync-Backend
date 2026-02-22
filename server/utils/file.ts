@@ -33,11 +33,21 @@ declare global {
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 /**
- * SHA-256 hash of a UTF-8 string → lowercase hex string.
- * Used as both a dedup key and an integrity check on the stored file.
+ * SHA-256 hash of bytes → lowercase hex string.
  */
-function sha256(data: string): string {
-  return createHash('sha256').update(data, 'utf8').digest('hex');
+function sha256FromBuffer(buf: Buffer): string {
+  return createHash('sha256').update(buf).digest('hex');
+}
+
+/**
+ * Parse payload: base64 string → Buffer, or UTF-8 string → Buffer.
+ */
+function payloadToBuffer(encryptedPayload: string, fileBuffer?: Buffer): Buffer {
+  if (fileBuffer) return fileBuffer;
+  if (/^[A-Za-z0-9+/]+=*$/.test(encryptedPayload.replace(/\s/g, ''))) {
+    return Buffer.from(encryptedPayload, 'base64');
+  }
+  return Buffer.from(encryptedPayload, 'utf8');
 }
 
 /**
@@ -78,11 +88,11 @@ export async function uploadEncryptedPayload(
   next: NextFunction,
 ): Promise<void> {
   const encryptedPayload: string | undefined = req.body?.encryptedPayload;
+  const fileFromMulter = (req as Request & { file?: { buffer: Buffer } }).file?.buffer;
   const userId: string | undefined           = req.params?.id as string;
 
-  // Guard — both fields are required at this point
-  if (!encryptedPayload) {
-    res.status(400).json({ error: 'encryptedPayload is required' });
+  if (!encryptedPayload && !fileFromMulter) {
+    res.status(400).json({ error: 'encryptedPayload (JSON) or document file (multipart) required' });
     return;
   }
   if (!userId) {
@@ -91,12 +101,13 @@ export async function uploadEncryptedPayload(
   }
 
   try {
+    const fileBuffer = payloadToBuffer(encryptedPayload ?? '', fileFromMulter);
+
     // ── Step 1: Hash ──────────────────────────────────────────────────
-    const fileHash    = sha256(encryptedPayload);
+    const fileHash    = sha256FromBuffer(fileBuffer);
     const storagePath = buildStoragePath(userId, fileHash);
 
     // ── Step 2: Upload to Supabase Storage ────────────────────────────
-    const fileBuffer = Buffer.from(encryptedPayload, 'utf8');
 
     const { error: uploadError } = await supabase.storage
       .from(BUCKET)

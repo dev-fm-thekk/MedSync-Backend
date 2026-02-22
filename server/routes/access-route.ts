@@ -1,6 +1,8 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import { mintSchema, grantAccessSchema } from '../utils/schema.js';
 import { mintRecord, accessGrant, getRecordAccess, isContractLive } from '../action.js';
+import { uploadEncryptedPayload } from '../utils/file.js';
+import { documentUpload } from '../utils/upload.js';
 
 const router = Router();
 
@@ -23,40 +25,85 @@ const requireAuth = (req: Request, res: Response, next: NextFunction): void => {
     next();
 };
 
-/**
- * @route   POST /v1/records/mint
- * @desc    Process medical data, upload to IPFS, and mint NFT via Paymaster.
- *
- * Expected body (validated by mintSchema):
- *   - patientAddress:    `0x${string}` — wallet address of the patient
- *   - encryptedPayload:  string         — encrypted medical data / IPFS CID
- *   - metadata:          object         — arbitrary record metadata
- *   - account:           `0x${string}` — signer/minter wallet address
- */
-router.post('/v1/records/:id/mint', requireAuth, async (req: Request, res: Response): Promise<void> => {
+const validateMintBody = (req: Request, res: Response, next: NextFunction): void => {
+    const hasPayload = !!(req.body?.encryptedPayload?.length || (req as Request & { file?: { buffer: Buffer } }).file);
+    if (!hasPayload) {
+
+    // Ensure metadata for audit
+        res.status(400).json({ error: "encryptedPayload or document file required" });
+        return;
+    }
     const validation = mintSchema.safeParse(req.body);
     const userId = req.params.id as string;
     if (!validation.success) {
-        res.status(400).json({ error: "Invalid address format or missing payload", details: validation.error.errors });
+        res.status(400).json({ error: "Invalid address format or missing fields", details: validation.error.errors });
         return;
     }
+    const { patientAddress, metadata, account } = validation.data;
+    (req as Request & { mintData?: { patientAddress: string; metadata: { recordType: string; doctorId: string }; account: string } }).mintData = {
+        patientAddress,
+        metadata: metadata ?? { recordType: "medical-record", doctorId: userId },
+        account,
+    };
+    next();
+};
 
-    const { patientAddress, encryptedPayload, metadata, account } = validation.data;
- 
-    const result = await mintRecord(patientAddress, encryptedPayload, metadata!, account as `0x${string}`, userId);
-
+const handleMintAfterUpload = async (req: Request, res: Response): Promise<void> => {
+    const mintData = (req as Request & { mintData?: { patientAddress: string; metadata: { recordType: string; doctorId: string }; account: string } }).mintData;
+    const userId = req.params.id as string;
+    if (!mintData) {
+        res.status(400).json({ error: "Validation data missing" });
+        return;
+    }
+    const storagePath = req.body.encryptedPayload as string;
+    const fileHashHex = req.fileHash;
+    if (!fileHashHex) {
+        res.status(500).json({ error: "Upload failed: no fileHash" });
+        return;
+    }
+    const fileHash = `0x${fileHashHex}` as `0x${string}`;
+    const result = await mintRecord(
+        mintData.patientAddress,
+        storagePath,
+        fileHash,
+        mintData.metadata,
+        mintData.account as `0x${string}`,
+        userId
+    );
     if ('error' in result) {
         res.status(500).json({ error: result.error });
         return;
     }
-
     res.status(200).json({
         success: true,
         txHash: result.hash,
         receipt: result.receipt,
         message: result.message,
     });
-});
+};
+
+/**
+ * @route   POST /v1/records/:id/mint
+ * @desc    Upload encrypted payload to Supabase Storage, then mint NFT to patient.
+ * Flow: encryptedPayload → Supabase Storage → storagePath + fileHash on-chain.
+ */
+router.post('/v1/records/:id/mint', requireAuth, validateMintBody, uploadEncryptedPayload, handleMintAfterUpload);
+
+/**
+ * @route   POST /v1/records/:id/mint/file
+ * @desc    Multipart: upload document file → encrypt/store in Supabase → mint NFT.
+ * Form fields: patientAddress, account, recordType (opt), doctorId (opt)
+ */
+const normalizeMintFormData = (req: Request, _res: Response, next: NextFunction): void => {
+    if (req.body?.recordType || req.body?.doctorId) {
+        req.body.metadata = {
+            recordType: req.body.recordType ?? 'medical-record',
+            doctorId: req.body.doctorId ?? req.params.id,
+        };
+    }
+    next();
+};
+router.post('/v1/records/:id/mint/file', requireAuth, documentUpload.single('document'), normalizeMintFormData, validateMintBody, uploadEncryptedPayload, handleMintAfterUpload);
 
 /**
  * @route   POST /v1/records/access/grant

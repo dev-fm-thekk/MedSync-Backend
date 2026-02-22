@@ -31,17 +31,19 @@ export async function isContractLive(address: `0x${string}`) {
 }
 
 // ── mintRecord ────────────────────────────────────────────────────────────────
-// user_id: the Supabase profiles UUID of the caller — required for audit FK
+// Contract expects: (patient, cid, fileHash bytes32)
+// metadata is for audit log only
 
 export async function mintRecord(
   patientAddress: string,
-  encryptedPayload: string,
+  cid: string,
+  fileHash: `0x${string}`,
   metadata: {
     recordType: string;
     doctorId:   string;
   },
   account: `0x${string}`,
-  user_id: string,            // ← Supabase profiles UUID (added for audit log)
+  user_id: string,
 ) {
   const walletClient = createWalletClient({
     account,
@@ -55,7 +57,7 @@ export async function mintRecord(
       address:      MedVault_SC_Address,
       abi:          abi,
       functionName: "mintRecord",
-      args:         [patientAddress, encryptedPayload, metadata],
+      args:         [patientAddress, cid, fileHash],
     });
 
     const hash    = await walletClient.writeContract(request);

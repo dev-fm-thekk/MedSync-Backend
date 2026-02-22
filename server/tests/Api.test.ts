@@ -71,6 +71,14 @@ vi.mock('../utils/schema.js', () => ({
 // before variable declarations, causing a ReferenceError (temporal dead zone).
 // Use only inline literals inside the factory function.
 
+vi.mock('../utils/file.js', () => ({
+  uploadEncryptedPayload: (req: { body: { encryptedPayload?: string }; fileHash?: string }, _res: unknown, next: () => void) => {
+    req.fileHash = 'a'.repeat(64);
+    req.body.encryptedPayload = 'mock/storage/path';
+    next();
+  },
+}));
+
 vi.mock('../action.js', () => ({
   mintRecord: vi.fn(async () => ({
     message: 'successfully uploaded file, minted nft',
@@ -142,7 +150,7 @@ describe('POST /api/v1/records/mint', () => {
   const validBody = {
     patientAddress:   '0x15d34aaf54267db7d7c367839aaf71a00a2c6a65',
     encryptedPayload: 'U2FsdGVkX1+encryptedData==',
-    metadata:         { recordType: 'blood-test', date: '2026-02-22' },
+    metadata:         { recordType: 'blood-test', doctorId: USER_ID },
     account:          '0x15d34aaf54267db7d7c367839aaf71a00a2c6a65',
   };
 
@@ -170,7 +178,8 @@ describe('POST /api/v1/records/mint', () => {
     expect(mintRecord).toHaveBeenCalledOnce();
     expect(mintRecord).toHaveBeenCalledWith(
       validBody.patientAddress,
-      validBody.encryptedPayload,
+      'mock/storage/path',
+      '0x' + 'a'.repeat(64),
       validBody.metadata,
       validBody.account,
       USER_ID,
