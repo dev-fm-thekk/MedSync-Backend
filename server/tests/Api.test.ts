@@ -120,7 +120,7 @@ beforeAll(async () => {
   process.env.MEDIVAULT_SC_ADDRESS = MOCK_SC_ADDR;
 
   // Dynamic import so route.ts loads AFTER both mocks are in place
-  const { default: router } = await import('../route.js');
+  const { default: router } = await import('../routes/access-route.js');
   app = express();
   app.use(express.json());
   app.use("/api", router);

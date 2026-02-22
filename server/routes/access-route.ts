@@ -1,6 +1,6 @@
 import { Router, Request, Response, NextFunction } from 'express';
-import { mintSchema, grantAccessSchema } from './utils/schema.js';
-import { mintRecord, accessGrant, getRecordAccess, isContractLive } from './action.js';
+import { mintSchema, grantAccessSchema } from '../utils/schema.js';
+import { mintRecord, accessGrant, getRecordAccess, isContractLive } from '../action.js';
 
 const router = Router();
 
