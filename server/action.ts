@@ -2,6 +2,7 @@ import { createPublicClient, createWalletClient, getAddress, http } from "viem";
 import { mainnet, localhost } from "viem/chains";
 import dotenv from "dotenv";
 import { abi } from "./utils/contract-metadata.js";
+import { writeAuditLog } from "./utils/logs.js";
 
 dotenv.config();
 
@@ -15,21 +16,12 @@ const MedVault_SC_Address: `0x${string}` = process.env
 
 export async function isContractLive(address: `0x${string}`) {
   try {
-    // getBytecode returns the compiled code at the address
-    const bytecode = await client.getCode({
-      address: address,
-    });
+    const bytecode = await client.getCode({ address });
 
-    // If bytecode is undefined or '0x', no contract is deployed there
     if (bytecode && bytecode !== "0x") {
-      return {
-        message: "contract is live",
-        address: address,
-      };
+      return { message: "contract is live", address };
     } else {
-      return {
-        message: "contract is not live",
-      };
+      return { message: "contract is not live" };
     }
   } catch (err) {
     return {
@@ -38,52 +30,89 @@ export async function isContractLive(address: `0x${string}`) {
   }
 }
 
+// ── mintRecord ────────────────────────────────────────────────────────────────
+// user_id: the Supabase profiles UUID of the caller — required for audit FK
+
 export async function mintRecord(
   patientAddress: string,
   encryptedPayload: string,
   metadata: {
     recordType: string;
-    doctorId: string;
+    doctorId:   string;
   },
   account: `0x${string}`,
+  user_id: string,            // ← Supabase profiles UUID (added for audit log)
 ) {
   const walletClient = createWalletClient({
     account,
     chain: localhost,
     transport: http(),
   });
+
   try {
-    // upload hash to ipfs
-    let cid; // returned from ipfs upload
     const { request } = await client.simulateContract({
       account,
-      address: MedVault_SC_Address,
-      abi: abi,
+      address:      MedVault_SC_Address,
+      abi:          abi,
       functionName: "mintRecord",
-      args: [patientAddress, encryptedPayload, metadata],
+      args:         [patientAddress, encryptedPayload, metadata],
     });
 
-    const hash = await walletClient.writeContract(request);
+    const hash    = await walletClient.writeContract(request);
     const receipt = await client.waitForTransactionReceipt({ hash });
+
     if (!receipt) throw new Error("Minted error");
+
+    // ── Audit: MINT_SUCCESS ─────────────────────────────────────────
+    await writeAuditLog({
+      event:               "MINT_SUCCESS",
+      user_id,
+      actor_address:       account,
+      patient_address:     patientAddress,
+      blockchain_txn_hash: hash,
+      metadata: {
+        block_number: Number(receipt.blockNumber),
+        recordType:   metadata.recordType,
+        doctorId:     metadata.doctorId,
+      },
+    });
+
     return {
       message: "successfully uploaded file, minted nft",
-      receipt: receipt,
-      hash: hash,
+      receipt,
+      hash,
     };
+
   } catch (err) {
+    const errorMessage = err instanceof Error ? err.message : "unexpected error";
+
+    // ── Audit: MINT_FAILURE ─────────────────────────────────────────
+    await writeAuditLog({
+      event:           "MINT_FAILURE",
+      user_id,
+      actor_address:   account,
+      patient_address: patientAddress,
+      error_message:   errorMessage,
+      metadata: {
+        recordType: metadata.recordType,
+        doctorId:   metadata.doctorId,
+      },
+    });
+
     console.error(err);
-    return {
-      error: err instanceof Error ? err.message : "unexpected error",
-    };
+    return { error: errorMessage };
   }
 }
 
+// ── accessGrant ───────────────────────────────────────────────────────────────
+// user_id: the Supabase profiles UUID of the caller — required for audit FK
+
 export async function accessGrant(
-  tokenId: number,
+  tokenId:       number,
   doctorAddress: string,
-  account: `0x${string}`,
-  duration: number,
+  account:       `0x${string}`,
+  duration:      number,
+  user_id:       string,       // ← Supabase profiles UUID (added for audit log)
 ) {
   const walletClient = createWalletClient({
     account,
@@ -94,58 +123,81 @@ export async function accessGrant(
   try {
     const { request } = await client.simulateContract({
       account,
-      address: MedVault_SC_Address,
-      abi: abi,
+      address:      MedVault_SC_Address,
+      abi:          abi,
       functionName: "grantViewerRole",
-      args: [tokenId, doctorAddress, duration],
+      args:         [tokenId, doctorAddress, duration],
     });
 
-    const hash = await walletClient.writeContract(request);
-
+    const hash    = await walletClient.writeContract(request);
     const receipt = await client.waitForTransactionReceipt({ hash });
-    if (!receipt) throw new Error("Unable to write contract ");
+
+    if (!receipt) throw new Error("Unable to write contract");
+
+    // ── Audit: ACCESS_GRANT_SUCCESS ─────────────────────────────────
+    await writeAuditLog({
+      event:               "ACCESS_GRANT_SUCCESS",
+      user_id,
+      actor_address:       account,
+      doctor_address:      doctorAddress,
+      token_id:            tokenId,
+      blockchain_txn_hash: hash,
+      metadata: {
+        block_number:     Number(receipt.blockNumber),
+        duration_seconds: duration,
+        expires_at:       Math.floor(Date.now() / 1000) + duration,
+      },
+    });
 
     return {
       message: "successfully granted access",
-      receipt: receipt,
-      hash: hash,
+      receipt,
+      hash,
     };
+
   } catch (err) {
+    const errorMessage = err instanceof Error ? err.message : "unexpected error";
+
+    // ── Audit: ACCESS_GRANT_FAILURE ─────────────────────────────────
+    await writeAuditLog({
+      event:          "ACCESS_GRANT_FAILURE",
+      user_id,
+      actor_address:  account,
+      doctor_address: doctorAddress,
+      token_id:       tokenId,
+      error_message:  errorMessage,
+      metadata: {
+        duration_seconds: duration,
+      },
+    });
+
     console.error(err);
-    return {
-      error: err instanceof Error ? err.message : "unexpected error",
-    };
+    return { error: errorMessage };
   }
 }
 
 /**
  * Checks if a specific doctor has access to a medical record NFT.
- * @param tokenId - The ID of the record (converted to BigInt internally)
- * @param doctorAddress - The wallet address of the doctor
+ * Read-only — no audit log needed.
  */
 export async function getRecordAccess(tokenId: number, doctorAddress: string) {
   try {
-    // Validate and checksum the address to satisfy viem's 0x${string} requirement
     const validatedDoctor = getAddress(doctorAddress);
 
-    // 2. Call the 'hasAccess' view function
     const hasAccess = await client.readContract({
-      address: MedVault_SC_Address,
-      abi: abi,
+      address:      MedVault_SC_Address,
+      abi:          abi,
       functionName: "hasAccess",
-      args: [BigInt(tokenId), validatedDoctor],
+      args:         [BigInt(tokenId), validatedDoctor],
     });
 
-    return {
-      success: true,
-      hasAccess, // Returns boolean
-    };
+    return { success: true, hasAccess };
   } catch (err) {
     console.error("Contract Read Error:", err);
     return {
-      success: false,
+      success:   false,
       hasAccess: false,
-      error: err instanceof Error ? err.message : "Unexpected error",
+      error:     err instanceof Error ? err.message : "Unexpected error",
     };
   }
 }

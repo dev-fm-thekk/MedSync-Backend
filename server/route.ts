@@ -33,9 +33,9 @@ const requireAuth = (req: Request, res: Response, next: NextFunction): void => {
  *   - metadata:          object         — arbitrary record metadata
  *   - account:           `0x${string}` — signer/minter wallet address
  */
-router.post('/v1/records/mint', requireAuth, async (req: Request, res: Response): Promise<void> => {
+router.post('/v1/records/:id/mint', requireAuth, async (req: Request, res: Response): Promise<void> => {
     const validation = mintSchema.safeParse(req.body);
-
+    const userId = req.params.id as string;
     if (!validation.success) {
         res.status(400).json({ error: "Invalid address format or missing payload", details: validation.error.errors });
         return;
@@ -43,7 +43,7 @@ router.post('/v1/records/mint', requireAuth, async (req: Request, res: Response)
 
     const { patientAddress, encryptedPayload, metadata, account } = validation.data;
  
-    const result = await mintRecord(patientAddress, encryptedPayload, metadata!, account as `0x${string}`);
+    const result = await mintRecord(patientAddress, encryptedPayload, metadata!, account as `0x${string}`, userId);
 
     if ('error' in result) {
         res.status(500).json({ error: result.error });
@@ -68,9 +68,9 @@ router.post('/v1/records/mint', requireAuth, async (req: Request, res: Response)
  *   - account:           `0x${string}` — signer wallet (must be record owner)
  *   - durationSeconds:   number         — how long the grant lasts in seconds
  */
-router.post('/v1/records/access/grant', requireAuth, async (req: Request, res: Response): Promise<void> => {
+router.post('/v1/records/access/:id/grant', requireAuth, async (req: Request, res: Response): Promise<void> => {
     const validation = grantAccessSchema.safeParse(req.body);
-
+    const userID = req.params.id as string;
     if (!validation.success) {
         res.status(400).json({ error: "Invalid input", details: validation.error.errors });
         return;
@@ -79,7 +79,7 @@ router.post('/v1/records/access/grant', requireAuth, async (req: Request, res: R
     const { tokenId, doctorAddress, account, durationSeconds } = validation.data;
     const expiryUnix = Math.floor(Date.now() / 1000) + durationSeconds;
 
-    const result = await accessGrant(tokenId, doctorAddress, account as `0x${string}`, durationSeconds);
+    const result = await accessGrant(tokenId, doctorAddress, account as `0x${string}`, durationSeconds, userID);
 
     if ('error' in result) {
         res.status(500).json({ error: result.error });

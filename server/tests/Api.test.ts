@@ -34,7 +34,7 @@ import express from 'express';
 // Must be above all other mocks. Always returns success so validation passes,
 // letting us test the route/contract layer in isolation.
 
-vi.mock('../schema.js', () => ({
+vi.mock('../utils/schema.js', () => ({
   mintSchema: {
     safeParse: (body: unknown) => {
       const b = body as Record<string, unknown>;
@@ -136,6 +136,9 @@ afterAll(() => {
 
 describe('POST /api/v1/records/mint', () => {
 
+  const USER_ID  = 'a1b2c3d4-e5f6-7890-abcd-ef1234567890';
+  const MINT_URL = `/api/v1/records/${USER_ID}/mint`;
+
   const validBody = {
     patientAddress:   '0x15d34aaf54267db7d7c367839aaf71a00a2c6a65',
     encryptedPayload: 'U2FsdGVkX1+encryptedData==',
@@ -145,7 +148,7 @@ describe('POST /api/v1/records/mint', () => {
 
   it('200 — mints a record with valid payload and auth', async () => {
     const res = await request(app)
-      .post('/api/v1/records/mint')
+      .post(MINT_URL)
       .set('x-patient-signature', AUTH)
       .send(validBody);
 
@@ -160,7 +163,7 @@ describe('POST /api/v1/records/mint', () => {
     vi.mocked(mintRecord).mockClear();
 
     await request(app)
-      .post('/api/v1/records/mint')
+      .post(MINT_URL)
       .set('x-patient-signature', AUTH)
       .send(validBody);
 
@@ -170,12 +173,13 @@ describe('POST /api/v1/records/mint', () => {
       validBody.encryptedPayload,
       validBody.metadata,
       validBody.account,
+      USER_ID,
     );
   });
 
   it('401 — rejects request with no auth header', async () => {
     const res = await request(app)
-      .post('/api/v1/records/mint')
+      .post(MINT_URL)
       .send(validBody);
 
     expect(res.status).toBe(401);
@@ -185,7 +189,7 @@ describe('POST /api/v1/records/mint', () => {
   it('400 — rejects missing patientAddress', async () => {
     const { patientAddress: _, ...body } = validBody;
     const res = await request(app)
-      .post('/api/v1/records/mint')
+      .post(MINT_URL)
       .set('x-patient-signature', AUTH)
       .send(body);
 
@@ -196,7 +200,7 @@ describe('POST /api/v1/records/mint', () => {
   it('400 — rejects missing encryptedPayload', async () => {
     const { encryptedPayload: _, ...body } = validBody;
     const res = await request(app)
-      .post('/api/v1/records/mint')
+      .post(MINT_URL)
       .set('x-patient-signature', AUTH)
       .send(body);
 
@@ -206,7 +210,7 @@ describe('POST /api/v1/records/mint', () => {
   it('400 — rejects missing account', async () => {
     const { account: _, ...body } = validBody;
     const res = await request(app)
-      .post('/api/v1/records/mint')
+      .post(MINT_URL)
       .set('x-patient-signature', AUTH)
       .send(body);
 
@@ -217,7 +221,7 @@ describe('POST /api/v1/records/mint', () => {
     vi.mocked(mintRecord).mockResolvedValueOnce({ error: 'reverted: insufficient gas' } as any);
 
     const res = await request(app)
-      .post('/api/v1/records/mint')
+      .post(MINT_URL)
       .set('x-patient-signature', AUTH)
       .send(validBody);
 
@@ -232,6 +236,9 @@ describe('POST /api/v1/records/mint', () => {
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe('POST /api/v1/records/access/grant', () => {
+
+  const GRANT_USER_ID = 'a1b2c3d4-e5f6-7890-abcd-ef1234567890';
+  const GRANT_URL     = `/api/v1/records/access/${GRANT_USER_ID}/grant`;
 
   const grantToDoctor1 = {
     tokenId:         '1',
@@ -251,7 +258,7 @@ describe('POST /api/v1/records/access/grant', () => {
     const before = Math.floor(Date.now() / 1000);
 
     const res = await request(app)
-      .post('/api/v1/records/access/grant')
+      .post(GRANT_URL)
       .set('x-patient-signature', AUTH)
       .send(grantToDoctor1);
 
@@ -264,7 +271,7 @@ describe('POST /api/v1/records/access/grant', () => {
 
   it('200 — owner grants access to doctor2', async () => {
     const res = await request(app)
-      .post('/api/v1/records/access/grant')
+      .post(GRANT_URL)
       .set('x-patient-signature', AUTH)
       .send(grantToDoctor2);
 
@@ -276,7 +283,7 @@ describe('POST /api/v1/records/access/grant', () => {
     vi.mocked(accessGrant).mockClear();
 
     await request(app)
-      .post('/api/v1/records/access/grant')
+      .post(GRANT_URL)
       .set('x-patient-signature', AUTH)
       .send(grantToDoctor1);
 
@@ -286,6 +293,7 @@ describe('POST /api/v1/records/access/grant', () => {
       grantToDoctor1.doctorAddress,
       grantToDoctor1.account,
       86400,
+      GRANT_USER_ID,
     );
   });
 
@@ -293,7 +301,7 @@ describe('POST /api/v1/records/access/grant', () => {
     const before = Math.floor(Date.now() / 1000);
 
     const res = await request(app)
-      .post('/api/v1/records/access/grant')
+      .post(GRANT_URL)
       .set('x-patient-signature', AUTH)
       .send({ ...grantToDoctor1, durationSeconds: 7200 });
 
@@ -303,7 +311,7 @@ describe('POST /api/v1/records/access/grant', () => {
 
   it('401 — rejects missing auth header', async () => {
     const res = await request(app)
-      .post('/api/v1/records/access/grant')
+      .post(GRANT_URL)
       .send(grantToDoctor1);
 
     expect(res.status).toBe(401);
@@ -312,7 +320,7 @@ describe('POST /api/v1/records/access/grant', () => {
   it('400 — rejects missing tokenId', async () => {
     const { tokenId: _, ...body } = grantToDoctor1;
     const res = await request(app)
-      .post('/api/v1/records/access/grant')
+      .post(GRANT_URL)
       .set('x-patient-signature', AUTH)
       .send(body);
 
@@ -322,7 +330,7 @@ describe('POST /api/v1/records/access/grant', () => {
   it('400 — rejects missing doctorAddress', async () => {
     const { doctorAddress: _, ...body } = grantToDoctor1;
     const res = await request(app)
-      .post('/api/v1/records/access/grant')
+      .post(GRANT_URL)
       .set('x-patient-signature', AUTH)
       .send(body);
 
@@ -332,7 +340,7 @@ describe('POST /api/v1/records/access/grant', () => {
   it('400 — rejects missing durationSeconds', async () => {
     const { durationSeconds: _, ...body } = grantToDoctor1;
     const res = await request(app)
-      .post('/api/v1/records/access/grant')
+      .post(GRANT_URL)
       .set('x-patient-signature', AUTH)
       .send(body);
 
@@ -343,7 +351,7 @@ describe('POST /api/v1/records/access/grant', () => {
     vi.mocked(accessGrant).mockResolvedValueOnce({ error: 'reverted: not owner' } as any);
 
     const res = await request(app)
-      .post('/api/v1/records/access/grant')
+      .post(GRANT_URL)
       .set('x-patient-signature', AUTH)
       .send(grantToDoctor1);
 
