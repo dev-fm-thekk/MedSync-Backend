@@ -1,6 +1,6 @@
 // schema.ts
 import { z } from 'zod';
-import { MintRecordInput, GrantAccessInput } from './types.js';
+import { MintRecordInput, GrantAccessInput } from '../types.js';
 
 // The "satisfies" keyword guarantees your Zod schema perfectly matches your TypeScript interface
 export const mintSchema = z.object({
@@ -9,11 +9,13 @@ export const mintSchema = z.object({
     metadata: z.object({
         recordType: z.string(),
         doctorId: z.string()
-    }).optional()
+    }).optional(),
+    account: z.string(),
 }) satisfies z.ZodType<MintRecordInput>;
 
 export const grantAccessSchema = z.object({
     tokenId: z.number().int().nonnegative(),
     doctorAddress: z.string().startsWith('0x', 'Invalid address'),
-    durationSeconds: z.number().int().positive()
+    durationSeconds: z.number().int().positive(),
+    account: z.string(),
 }) satisfies z.ZodType<GrantAccessInput>;

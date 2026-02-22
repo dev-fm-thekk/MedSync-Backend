@@ -7,17 +7,24 @@
     "@nomicfoundation/hardhat-toolbox-viem": "^5.0.2",
     "@types/express": "^5.0.6",
     "@types/node": "^22.19.11",
+    "@types/supertest": "^6.0.3",
     "forge-std": "github:foundry-rs/forge-std#v1.9.4",
     "hardhat": "^3.1.9",
+    "supertest": "^7.2.2",
+    "ts-node": "^10.9.2",
     "typescript": "~5.8.0",
-    "viem": "^2.46.2"
+    "viem": "^2.46.2",
+    "vitest": "^4.0.18"
   },
   "dependencies": {
     "@openzeppelin/contracts": "^5.4.0",
+    "@supabase/supabase-js": "^2.97.0",
+    "dotenv": "^17.3.1",
     "express": "^5.2.1",
     "tsx": "^4.21.0"
   },
   "scripts": {
-    "server": "npx tsx watch server/app.ts"
+    "server": "npx tsx watch server/app.ts",
+    "test": "vitest run"
   }
 }
